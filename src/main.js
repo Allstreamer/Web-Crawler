@@ -18,15 +18,42 @@ function normalize_url(url_str, base_url) {
 }
 
 function url_obj_to_normal_url(url_obj) {
-  let output_url = `${url_obj.host}${url_obj.pathname}`;
+  let output_url = `https://${url_obj.host}${url_obj.pathname}`;
   if (output_url.slice(-1) === "/") {
     output_url = output_url.slice(0, -1);
   }
   return output_url;
 }
 
-function crawl_page(urls_to_crawl, crawled_urls) {
-  let target_url = urls_to_crawl.pop();
+async function crawl_page(base_url, current_url = base_url, pages = new Map()) {
+  if ((new URL(current_url)).host != (new URL(base_url)).host) {
+    return [];
+  }
+  if (pages.has(current_url)) {
+    pages.set(current_url, pages.get(current_url) + 1);
+    return [];
+  }
+  // console.log(`Indexing: ${current_url}`);
+
+  pages.set(current_url, 1);
+  
+  try {
+    let res = await fetch(current_url, {method:"GET"});
+    if (!res.ok) {
+      return [];
+    }
+    if (!res.headers.get("Content-Type").includes("text/html")) {
+      return [];
+    }
+    let res_text = await res.text();
+    let found_pages = extract_urls_from_html(res_text, base_url);
+    for (let page_link of found_pages) {
+      await crawl_page(base_url, page_link, pages);
+    }
+  }catch (e) {
+    console.log(e);
+  }
+  return pages;
 }
 
 async function main() {
@@ -36,19 +63,16 @@ async function main() {
   }
   let url_to_index = argv[2];
   console.log(`Indexing: ${url_to_index}!`);
+  let all_pages = await crawl_page(url_to_index, url_to_index);
 
-  let res = await fetch(url_to_index, {
-    method: 'GET',
-  });
-  if (!res.ok) {
-    console.log("Request Failed");
-    process.exit(2);
+  let kv_pages = Array.from(all_pages.entries());
+
+  kv_pages = kv_pages.sort((a, b) => a[1] - b[1]);
+
+  for (let [key, val] of kv_pages) {
+    console.log(`${key} = ${val}`);
   }
-  if (!res.headers.get("Content-Type").includes("text/html")) {
-    console.log("Response Not HTML");
-  }
-  let res_text = await res.text();
-  console.log(extract_urls_from_html(res_text, url_to_index));
+  console.log(`Found ${all_pages.size} pages`);
 }
 
 await main();
